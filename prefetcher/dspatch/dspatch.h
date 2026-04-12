@@ -5,6 +5,7 @@
 #include <bitset>
 #include <deque>
 #include <algorithm>
+#include <vector>
 
 // Configuration parameters
 constexpr uint32_t REGION_SIZE_BYTES = 4096; // 4KB
@@ -72,6 +73,7 @@ public:
     }
 };
 
+
 // Page Buffer -> Track spatial footprint
 // Tracks recent 4KB physical pages and records which cache line inside
 // the page were touched - stored as bit pattern
@@ -114,15 +116,35 @@ public:
     }
 };
 
+enum class PerfCandidate {
+    NONE,
+    COVP,
+    ACCP
+};
 
 class DSPatchCore {
     private:
     std::deque<PB_Entry> page_buffer;
     SPT_Entry spt[SPT_SIZE];
-    
+
+    uint8_t bw_bucket; // DRAM bandwidth bucket for dynamic selection of pattern
+
+    // Dynamic selection of pattern based on current bandwidth conditions and pattern quality
+    PerfCandidate dyn_selecttion(const SPT_Entry& spt_entry,
+        std::bitset<LINES_PER_REGION/2> &selected_bmp);
+
+    // Generate prefetch candidates based on selected pattern and trigger information
+    void generate_prefetches(uint64_t pc, uint64_t page_addr,
+        uint32_t trigger_offset, std::vector<uint64_t> &prefetch_candidates);
+
     // Handle eviction of page from page buffer and update SPT
     void train_spt(const PB_Entry &pb_entry);
 public:
+
+    DSPatchCore() : bw_bucket(0) {}
+
+    void update_bw(uint8_t current_bw);
+
     uint32_t get_spt_index(uint64_t trigger_pc);
 
     void handle_access(uint64_t pc, uint64_t addr) {

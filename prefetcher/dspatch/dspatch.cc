@@ -3,8 +3,16 @@
 
 #include "dspatch.h"
 
-
 using namespace std;
+
+
+uint32_t DSPatchCore::get_spt_index(uint64_t trigger_pc) {
+    return (trigger_pc ^ (trigger_pc >> 8) ^ (trigger_pc >> 16)) % SPT_SIZE;
+}
+
+void DSPatchCore::update_bw(uint8_t current_bw) {
+    bw_bucket = current_bw;
+}
 
 /*
     Overall Flow:
@@ -17,8 +25,30 @@ using namespace std;
          access and the trigger PC -> Do this when? When the page leaves buffer - for now
 */
 
-uint32_t DSPatchCore::get_spt_index(uint64_t trigger_pc) {
-    return (trigger_pc ^ (trigger_pc >> 8) ^ (trigger_pc >> 16)) % SPT_SIZE;
+PerfCandidate DSPatchCore::dyn_selecttion(const SPT_Entry& spt_entry,
+    std::bitset<LINES_PER_REGION/2> &selected_bmp) {
+    
+        // High bandwidth, prioritize accuracy
+        if (bw_bucket == 3) {
+            if (spt_entry.measure_accP.is_saturated()) {
+                selected_bmp.reset();
+                return PerfCandidate::NONE;
+            } else {
+                selected_bmp = spt_entry.bmp_accP;
+                return PerfCandidate::ACCP;
+            }
+        } else if (bw_bucket == 2) { // Moderate bandwidth, use coverage pattern
+            if (spt_entry.measure_covP.is_saturated()) {
+                selected_bmp = spt_entry.bmp_accP;
+                return PerfCandidate::ACCP;
+            } else {
+                selected_bmp = spt_entry.bmp_covP;
+                return PerfCandidate::COVP;
+            }
+        } else { // Low bandwidth, be aggressive with coverage
+            selected_bmp = spt_entry.bmp_covP;
+            return PerfCandidate::COVP;
+        }
 }
 
 void DSPatchCore::train_spt(const PB_Entry& evicted_entry) {
