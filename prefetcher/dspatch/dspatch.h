@@ -35,7 +35,7 @@ public:
 };
 
 class BitMath {
-
+public:
     std::bitset<LINES_PER_REGION/2> compress(const std::bitset<LINES_PER_REGION> &bitmap) {
         std::bitset<LINES_PER_REGION/2> compressed;
         for (size_t i = 0; i < LINES_PER_REGION/2; ++i) {
@@ -76,6 +76,7 @@ class BitMath {
 // 1st access to each 2KB half-page acts as a  trigger
 
 class PB_Entry {
+public:
     uint64_t page_addr;
     uint64_t trigger_pc;
     uint32_t trigger_offset; // offset within the page that triggered the entry
@@ -95,7 +96,7 @@ class PB_Entry {
 // 256 entry direct-mapped table -> see config up top and change as needed
 
 class SPT_Entry {
-    
+public:
     // Granualioty is 128B -> 1bit  == 2 cache lines
     std::bitset<LINES_PER_REGION/2> bmp_covP;
     std::bitset<LINES_PER_REGION/2> bmp_accP;
@@ -110,5 +111,10 @@ class SPT_Entry {
         bmp_accP.reset();
     }
 };
+
+
+class DSPatchCore {
+
+}
 
 #endif // DSPATCH_H
