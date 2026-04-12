@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 #include <bitset>
+#include <deque>
+#include <algorithm>
 
 // Configuration parameters
 constexpr uint32_t REGION_SIZE_BYTES = 4096; // 4KB
@@ -114,7 +116,41 @@ public:
 
 
 class DSPatchCore {
+    private:
+    std::deque<PB_Entry> page_buffer;
+    SPT_Entry spatial_pattern_table[SPT_SIZE];
+    
+    // Handle eviction of page from page buffer and update SPT
+    void train_spt(const PB_Entry &pb_entry);
+public:
+    
+    void handle_access(uint64_t pc, uint64_t addr) {
+        uint64_t page_addr = addr / REGION_SIZE_BYTES;
+        uint32_t offset = (addr % REGION_SIZE_BYTES) / CACHE_LINE_SIZE_BYTES;
 
+        // Check if page is in buffer
+        auto it = std::find_if(page_buffer.begin(), page_buffer.end(),
+            [page_addr](const PB_Entry &entry) {
+                return entry.page_addr == page_addr;
+            });
+
+        if (it != page_buffer.end()) {
+            // Page is in buffer, update access bitmap
+            it->access_bitmap.set(offset);
+        } else {
+            // Page not in buffer, need to add
+            if (page_buffer.size() >= PB_SIZE) {
+                // Evict least recently used page
+                PB_Entry evicted_entry = page_buffer.front();
+                page_buffer.pop_front();
+                train_spt(evicted_entry);
+            }
+            // Add new page to buffer
+            page_buffer.emplace_back(page_addr, pc, offset);
+
+            // TODO: Check SPT for pattern and decide on prefetching
+        }
+    }
 }
 
 #endif // DSPATCH_H
