@@ -38,7 +38,7 @@ public:
 
 class BitMath {
 public:
-    std::bitset<LINES_PER_REGION/2> compress(const std::bitset<LINES_PER_REGION> &bitmap) {
+    static std::bitset<LINES_PER_REGION/2> compress(const std::bitset<LINES_PER_REGION> &bitmap) {
         std::bitset<LINES_PER_REGION/2> compressed;
         for (size_t i = 0; i < LINES_PER_REGION/2; ++i) {
             compressed[i] = bitmap[2*i] | bitmap[2*i + 1];
@@ -46,7 +46,7 @@ public:
         return compressed;
     }
 
-    std::bitset<LINES_PER_REGION> decompress(const std::bitset<LINES_PER_REGION/2> &compressed) {
+    static std::bitset<LINES_PER_REGION> decompress(const std::bitset<LINES_PER_REGION/2> &compressed) {
         std::bitset<LINES_PER_REGION> bitmap;
         for (size_t i = 0; i < LINES_PER_REGION/2; ++i) {
             bitmap[2*i] = compressed[i];
@@ -56,15 +56,15 @@ public:
     }
 
     // Circular shift left
-    std::bitset<LINES_PER_REGION/2> circular_shift_left(const std::bitset<LINES_PER_REGION/2> &bitmap, size_t shift) {
+    static std::bitset<LINES_PER_REGION> circular_shift_left(const std::bitset<LINES_PER_REGION> &bitmap, uint32_t shift) {
         if (shift == 0) return bitmap;
-        return (bitmap << shift) | (bitmap >> (LINES_PER_REGION/2 - shift));
+        return (bitmap << shift) | (bitmap >> (LINES_PER_REGION - shift));
     }
 
     // Circular shift right
-    std::bitset<LINES_PER_REGION/2> circular_shift_right(const std::bitset<LINES_PER_REGION/2> &bitmap, size_t shift) {
+    static std::bitset<LINES_PER_REGION> circular_shift_right(const std::bitset<LINES_PER_REGION> &bitmap, uint32_t shift) {
         if (shift == 0) return bitmap;
-        return (bitmap >> shift) | (bitmap << (LINES_PER_REGION/2 - shift));
+        return (bitmap >> shift) | (bitmap << (LINES_PER_REGION - shift));
     }
 
     static uint32_t popcount(const std::bitset<LINES_PER_REGION/2> &bitmap) {
@@ -118,12 +118,13 @@ public:
 class DSPatchCore {
     private:
     std::deque<PB_Entry> page_buffer;
-    SPT_Entry spatial_pattern_table[SPT_SIZE];
+    SPT_Entry spt[SPT_SIZE];
     
     // Handle eviction of page from page buffer and update SPT
     void train_spt(const PB_Entry &pb_entry);
 public:
-    
+    uint32_t get_spt_index(uint64_t trigger_pc);
+
     void handle_access(uint64_t pc, uint64_t addr) {
         uint64_t page_addr = addr / REGION_SIZE_BYTES;
         uint32_t offset = (addr % REGION_SIZE_BYTES) / CACHE_LINE_SIZE_BYTES;
