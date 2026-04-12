@@ -34,6 +34,42 @@ public:
     }
 };
 
+class BitMath {
+
+    std::bitset<LINES_PER_REGION/2> compress(const std::bitset<LINES_PER_REGION> &bitmap) {
+        std::bitset<LINES_PER_REGION/2> compressed;
+        for (size_t i = 0; i < LINES_PER_REGION/2; ++i) {
+            compressed[i] = bitmap[2*i] | bitmap[2*i + 1];
+        }
+        return compressed;
+    }
+
+    std::bitset<LINES_PER_REGION> decompress(const std::bitset<LINES_PER_REGION/2> &compressed) {
+        std::bitset<LINES_PER_REGION> bitmap;
+        for (size_t i = 0; i < LINES_PER_REGION/2; ++i) {
+            bitmap[2*i] = compressed[i];
+            bitmap[2*i + 1] = compressed[i];
+        }
+        return bitmap;
+    }
+
+    // Circular shift left
+    std::bitset<LINES_PER_REGION/2> circular_shift_left(const std::bitset<LINES_PER_REGION/2> &bitmap, size_t shift) {
+        if (shift == 0) return bitmap;
+        return (bitmap << shift) | (bitmap >> (LINES_PER_REGION/2 - shift));
+    }
+
+    // Circular shift right
+    std::bitset<LINES_PER_REGION/2> circular_shift_right(const std::bitset<LINES_PER_REGION/2> &bitmap, size_t shift) {
+        if (shift == 0) return bitmap;
+        return (bitmap >> shift) | (bitmap << (LINES_PER_REGION/2 - shift));
+    }
+
+    static uint32_t popcount(const std::bitset<LINES_PER_REGION/2> &bitmap) {
+        return bitmap.count();
+    }
+};
+
 // Page Buffer -> Track spatial footprint
 // Tracks recent 4KB physical pages and records which cache line inside
 // the page were touched - stored as bit pattern
