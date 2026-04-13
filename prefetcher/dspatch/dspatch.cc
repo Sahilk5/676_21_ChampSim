@@ -104,3 +104,27 @@ void DSPatchCore::train_spt(const PB_Entry& evicted_entry) {
     bitset<LINES_PER_REGION> new_ac_64 = bmp_real_anchored & bmp_cov_decomp;
     spt_entry.bmp_accP = BitMath::compress(new_ac_64);
 }
+
+// prefetch time
+void DSPatchCore::generate_prefetches(uint64_t pc, uint64_t page_addr,
+    uint32_t trigger_offset, std::vector<uint64_t> &prefetch_candidates) {
+    
+    uint32_t spt_index = get_spt_index(pc);
+    SPT_Entry &spt_entry = spt[spt_index];
+
+    bitset<LINES_PER_REGION/2> selected_bmp;
+    PerfCandidate selected_pattern = dyn_selecttion(spt_entry, selected_bmp);
+
+    if (selected_pattern == PerfCandidate::NONE) return;
+
+    bitset<LINES_PER_REGION> bmp_decomp = BitMath::decompress(selected_bmp);
+    bitset<LINES_PER_REGION> shifted_bmp = BitMath::circular_shift_left(bmp_decomp, trigger_offset);
+
+    // Generate prefetch candidates based on the selected pattern
+    for (uint32_t i = 0; i < LINES_PER_REGION; ++i) {
+        if (shifted_bmp[i] && i != trigger_offset) {
+            uint64_t prefetch_addr = (page_addr * REGION_SIZE_BYTES) + (i * CACHE_LINE_SIZE_BYTES);
+            prefetch_candidates.push_back(prefetch_addr);
+        }
+    }
+}

@@ -147,7 +147,7 @@ public:
 
     uint32_t get_spt_index(uint64_t trigger_pc);
 
-    void handle_access(uint64_t pc, uint64_t addr) {
+    void handle_access(uint64_t pc, uint64_t addr, std::vector<uint64_t> &prefetch_candidates) {
         uint64_t page_addr = addr / REGION_SIZE_BYTES;
         uint32_t offset = (addr % REGION_SIZE_BYTES) / CACHE_LINE_SIZE_BYTES;
 
@@ -171,9 +171,10 @@ public:
             // Add new page to buffer
             page_buffer.emplace_back(page_addr, pc, offset);
 
-            // TODO: Check SPT for pattern and decide on prefetching
+            //Check SPT for pattern and decide on prefetching
+            generate_prefetches(pc, page_addr, offset, prefetch_candidates);
         }
     }
-}
+};
 
 #endif // DSPATCH_H
