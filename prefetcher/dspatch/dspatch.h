@@ -189,11 +189,11 @@ struct dspatch : public champsim::modules::prefetcher {
 
     DSPatchCore engine;
 
-    void prefetcher_initialize() override;
-    uint32_t prefetcher_cache_operate(champsim::address addr, champsim::address ip, bool cache_hit, bool useful_prefetch, access_type type, uint32_t metadata_in) override;
-    void prefetcher_cycle_operate() override;
-    uint32_t prefetcher_cache_fill(champsim::address addr, long set, long way, uint8_t prefetch, champsim::address evicted_addr, uint32_t metadata_in) override;
-    void prefetcher_final_stats() override;
+    void prefetcher_initialize();
+    uint32_t prefetcher_cache_operate(champsim::address addr, champsim::address ip, bool cache_hit, bool useful_prefetch, access_type type, uint32_t metadata_in);
+    void prefetcher_cycle_operate();
+    uint32_t prefetcher_cache_fill(champsim::address addr, long set, long way, uint8_t prefetch, champsim::address evicted_addr, uint32_t metadata_in);
+    void prefetcher_final_stats();
 };
 
 #endif // DSPATCH_H

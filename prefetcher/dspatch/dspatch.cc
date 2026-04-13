@@ -72,8 +72,8 @@ void DSPatchCore::train_spt(const PB_Entry& evicted_entry) {
     uint32_t match_acc = BitMath::popcount(BitMath::compress(bmp_real_anchored & bmp_acc_decomp));
 
     // calculate coverage and accuracy
-    uint32_t cov_of_covP = (pop_cov == 0) ? 0 : (match_cov * 100 / pop_cov);
-    uint32_t acc_of_covP = (pop_cov == 0) ? 0 : (match_acc * 100 / pop_cov);
+    uint32_t cov_of_covP = (pop_real == 0) ? 0 : (match_cov * 100 / pop_real);
+    uint32_t acc_of_covP = (pop_cov == 0) ? 0 : (match_cov * 100 / pop_cov);
     uint32_t acc_of_accP = (pop_acc == 0) ? 0 : (match_acc * 100 / pop_acc);
 
     // Modulate CovP
@@ -136,15 +136,15 @@ void dspatch::prefetcher_initialize() {
 }
 
 uint32_t dspatch::prefetcher_cache_operate(champsim::address addr, champsim::address ip, bool cache_hit, bool useful_prefetch, access_type type, uint32_t metadata_in) {
-    if (type != LOAD && type != RFO) {
+    if (type != access_type::LOAD && type != access_type::RFO) {
         return metadata_in; // Only consider demand accesses for prefetching
     }
 
     std::vector<uint64_t> prefetch_candidates;
-    engine.handle_access(ip, addr, prefetch_candidates);
+    engine.handle_access(ip.to<uint64_t>(), addr.to<uint64_t>(), prefetch_candidates);
 
     for(auto pf_addr : prefetch_candidates) {
-        bool success = prefetch_line(champsim::address(pf_addr), true, metadata_in);
+        bool success = prefetch_line(champsim::address{pf_addr}, true, metadata_in);
         if (!success) {
             break; // Stop issuing prefetches if MSHR is full or prefetch queue is full
         }
@@ -155,7 +155,7 @@ uint32_t dspatch::prefetcher_cache_operate(champsim::address addr, champsim::add
 
 void dspatch::prefetcher_cycle_operate(){
     // For now, using L2 MSHR occupancyh as a proxy for bandwidth conditions. This can be replaced with a more direct measure if available.
-    double utilization = intern_->mshr_occupancy_ratio();
+    double utilization = intern_->get_mshr_occupancy_ratio();
 
    uint8_t bw_bucket = 0;
     if (utilization > 0.75) {
