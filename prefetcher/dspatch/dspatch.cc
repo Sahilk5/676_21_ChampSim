@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include "dspatch.h"
+#include "cache.h"
 
 using namespace std;
 
