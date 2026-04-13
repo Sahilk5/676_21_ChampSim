@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <bitset>
+#include <iostream>
 
 #include "dspatch.h"
 
@@ -130,20 +131,20 @@ void DSPatchCore::generate_prefetches(uint64_t pc, uint64_t page_addr,
 }
 
 
-void dspatch::prefetcher_initalize() {
+void dspatch::prefetcher_initialize() {
     std::cout<< "Initialized DSPatch Prefetcher" << std::endl;
 }
 
-uint32_t dspatch::prefetcher_cache_operate(uint64_t addr, champsim::address ip, bool cache_hit, bool useful_prefetch, access_type type, uint32_t metadata_in) {
+uint32_t dspatch::prefetcher_cache_operate(champsim::address addr, champsim::address ip, bool cache_hit, bool useful_prefetch, access_type type, uint32_t metadata_in) {
     if (type != LOAD && type != RFO) {
         return metadata_in; // Only consider demand accesses for prefetching
     }
 
     std::vector<uint64_t> prefetch_candidates;
-    dspatch_engine.handle_access(ip, addr, prefetch_candidates);
+    engine.handle_access(ip, addr, prefetch_candidates);
 
     for(auto pf_addr : prefetch_candidates) {
-        bool success = prefetch_line(pf_addr, true, metadata_in);
+        bool success = prefetch_line(champsim::address(pf_addr), true, metadata_in);
         if (!success) {
             break; // Stop issuing prefetches if MSHR is full or prefetch queue is full
         }
@@ -154,10 +155,7 @@ uint32_t dspatch::prefetcher_cache_operate(uint64_t addr, champsim::address ip, 
 
 void dspatch::prefetcher_cycle_operate(){
     // For now, using L2 MSHR occupancyh as a proxy for bandwidth conditions. This can be replaced with a more direct measure if available.
-    uint32_t mshr_occupancy = get_mshr_occupancy();
-    uint32_t mshr_size = get_mshr_size();
-
-   float utilization = (mshr_size == 0) ? 0 : (static_cast<float>(mshr_occupancy) / mshr_size);
+    double utilization = intern_->mshr_occupancy_ratio();
 
    uint8_t bw_bucket = 0;
     if (utilization > 0.75) {
@@ -168,10 +166,10 @@ void dspatch::prefetcher_cycle_operate(){
          bw_bucket = 1; // Low bandwidth
     }
 
-    dspatch_engine.update_bw(bw_bucket);
+    engine.update_bw(bw_bucket);
 }
 
-uint32_t dspatch::prefetcher_cache_fill(uint64_t addr, long set, long way, uint8_t prefetch, champsim::address evicted_addr, uint32_t metadata_in) {
+uint32_t dspatch::prefetcher_cache_fill(champsim::address addr, long set, long way, uint8_t prefetch, champsim::address evicted_addr, uint32_t metadata_in) {
     return metadata_in;
 }
 

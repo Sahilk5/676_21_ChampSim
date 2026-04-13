@@ -185,10 +185,10 @@ struct dspatch : public champsim::modules::prefetcher {
 
     DSPatchCore engine;
 
-    void prefetcher_initalize() override;
-    uint32_t prefetcher_cache_operate(uint64_t addr, champsim::address ip, bool cache_hit, bool useful_prefetch, access_type type, uint32_t metadata_in) override;
+    void prefetcher_initialize() override;
+    uint32_t prefetcher_cache_operate(champsim::address addr, champsim::address ip, bool cache_hit, bool useful_prefetch, access_type type, uint32_t metadata_in) override;
     void prefetcher_cycle_operate() override;
-    uint32_t prefetcher_cache_fill(uint64_t addr, long set, long way, uint8_t prefetch, champsim::address evicted_addr, uint32_t metadata_in) override;
+    uint32_t prefetcher_cache_fill(champsim::address addr, long set, long way, uint8_t prefetch, champsim::address evicted_addr, uint32_t metadata_in) override;
     void prefetcher_final_stats() override;
 };
 
