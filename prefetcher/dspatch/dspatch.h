@@ -7,6 +7,9 @@
 #include <algorithm>
 #include <vector>
 
+#include <address.h>
+#include <modules.h>
+
 // Configuration parameters
 constexpr uint32_t REGION_SIZE_BYTES = 4096; // 4KB
 constexpr uint32_t CACHE_LINE_SIZE_BYTES = 64; // 64B
@@ -175,6 +178,18 @@ public:
             generate_prefetches(pc, page_addr, offset, prefetch_candidates);
         }
     }
+};
+
+struct dspatch : public champsim::modules::prefetcher {
+    using prefetcher::prefetcher;
+
+    DSPatchCore engine;
+
+    void prefetcher_initalize() override;
+    uint32_t prefetcher_cache_operate(uint64_t addr, champsim::address ip, bool cache_hit, bool useful_prefetch, access_type type, uint32_t metadata_in) override;
+    void prefetcher_cycle_operate() override;
+    uint32_t prefetcher_cache_fill(uint64_t addr, long set, long way, uint8_t prefetch, champsim::address evicted_addr, uint32_t metadata_in) override;
+    void prefetcher_final_stats() override;
 };
 
 #endif // DSPATCH_H
