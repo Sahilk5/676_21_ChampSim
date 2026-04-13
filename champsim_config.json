@@ -83,7 +83,7 @@
         "prefetch_as_load": false,
         "virtual_prefetch": false,
         "prefetch_activate": "LOAD,WRITE,RFO,TRANSLATION,PREFETCH",
-        "prefetcher": "no"
+        "prefetcher": "dspatch"
     },
 
     "ITLB": {
