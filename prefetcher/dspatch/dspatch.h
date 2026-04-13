@@ -163,6 +163,10 @@ public:
         if (it != page_buffer.end()) {
             // Page is in buffer, update access bitmap
             it->access_bitmap.set(offset);
+            // LRU ordering - move accessed entry to back
+            PB_Entry accessed_entry = *it;
+            page_buffer.erase(it);
+            page_buffer.push_back(accessed_entry);
         } else {
             // Page not in buffer, need to add
             if (page_buffer.size() >= PB_SIZE) {
