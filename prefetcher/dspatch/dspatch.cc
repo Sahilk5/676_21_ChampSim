@@ -2,6 +2,7 @@
 #include <bitset>
 #include <iostream>
 
+#include "cache.h"
 #include "dspatch.h"
 #include "cache.h"
 
@@ -29,28 +30,31 @@ void DSPatchCore::update_bw(uint8_t current_bw) {
 
 PerfCandidate DSPatchCore::dyn_selecttion(const SPT_Entry& spt_entry,
     std::bitset<LINES_PER_REGION/2> &selected_bmp) {
-    
-        // High bandwidth, prioritize accuracy
-        if (bw_bucket == 3) {
-            if (spt_entry.measure_accP.is_saturated()) {
-                selected_bmp.reset();
-                return PerfCandidate::NONE;
-            } else {
-                selected_bmp = spt_entry.bmp_accP;
-                return PerfCandidate::ACCP;
-            }
-        } else if (bw_bucket == 2) { // Moderate bandwidth, use coverage pattern
-            if (spt_entry.measure_covP.is_saturated()) {
-                selected_bmp = spt_entry.bmp_accP;
-                return PerfCandidate::ACCP;
-            } else {
-                selected_bmp = spt_entry.bmp_covP;
-                return PerfCandidate::COVP;
-            }
-        } else { // Low bandwidth, be aggressive with coverage
-            selected_bmp = spt_entry.bmp_covP;
-            return PerfCandidate::COVP;
+    // High bandwidth, prioritize accuracy.
+    if (bw_bucket == 3) {
+        if (spt_entry.measure_accP.is_saturated()) {
+            selected_bmp.reset();
+            return PerfCandidate::NONE;
         }
+
+        selected_bmp = spt_entry.bmp_accP;
+        return PerfCandidate::ACCP;
+    }
+
+    // Moderate bandwidth, prefer coverage unless CovP has proven bad.
+    if (bw_bucket == 2) {
+        if (spt_entry.measure_covP.is_saturated()) {
+            selected_bmp = spt_entry.bmp_accP;
+            return PerfCandidate::ACCP;
+        }
+
+        selected_bmp = spt_entry.bmp_covP;
+        return PerfCandidate::COVP;
+    }
+
+    // Low bandwidth, be aggressive with coverage.
+    selected_bmp = spt_entry.bmp_covP;
+    return PerfCandidate::COVP;
 }
 
 void DSPatchCore::train_spt(const PB_Entry& evicted_entry) {
@@ -67,50 +71,57 @@ void DSPatchCore::train_spt(const PB_Entry& evicted_entry) {
 
     uint32_t pop_real = BitMath::popcount(BitMath::compress(bmp_real_anchored));
     uint32_t pop_cov = BitMath::popcount(spt_entry.bmp_covP);
-    uint32_t pop_acc = BitMath::popcount(spt_entry.bmp_accP);       
+    uint32_t pop_acc = BitMath::popcount(spt_entry.bmp_accP);
 
     uint32_t match_cov = BitMath::popcount(BitMath::compress(bmp_real_anchored & bmp_cov_decomp));
     uint32_t match_acc = BitMath::popcount(BitMath::compress(bmp_real_anchored & bmp_acc_decomp));
 
-    // calculate coverage and accuracy
+    // Calculate coverage and accuracy.
     uint32_t cov_of_covP = (pop_real == 0) ? 0 : (match_cov * 100 / pop_real);
     uint32_t acc_of_covP = (pop_cov == 0) ? 0 : (match_cov * 100 / pop_cov);
     uint32_t acc_of_accP = (pop_acc == 0) ? 0 : (match_acc * 100 / pop_acc);
 
-    // Modulate CovP
-    
-    if ((bmp_real_anchored & ~bmp_cov_decomp).any()) {
-        spt_entry.or_count.increment();
-    }
-
+    // CovP relearn condition follows the paper more closely:
+    // reset only when MeasureCovP saturates and either bandwidth is in the highest quartile
+    // or the coverage of CovP is below 50%.
     if (acc_of_covP < 50 || cov_of_covP < 50) {
         spt_entry.measure_covP.increment();
     }
 
-    if (spt_entry.measure_covP.is_saturated()) {
-        spt_entry.bmp_covP = BitMath::compress(bmp_real_anchored);
+    bool relearn_covP =
+        spt_entry.measure_covP.is_saturated() &&
+        ((bw_bucket == 3) || (cov_of_covP < 50));
+
+    bool adds_new_bits = (bmp_real_anchored & ~bmp_cov_decomp).any();
+    bitset<LINES_PER_REGION> final_cov = bmp_cov_decomp;
+
+    if (relearn_covP) {
+        final_cov = bmp_real_anchored;
         spt_entry.measure_covP.reset();
         spt_entry.or_count.reset();
-    } else {
-        bitset<LINES_PER_REGION> bmp_cov_new = bmp_cov_decomp| bmp_real_anchored;
-        spt_entry.bmp_covP = BitMath::compress(bmp_cov_new);
+    } else if (adds_new_bits && !spt_entry.or_count.is_saturated()) {
+        final_cov = bmp_cov_decomp | bmp_real_anchored;
+        spt_entry.or_count.increment();
     }
 
-    //Modulate AccP
+    spt_entry.bmp_covP = BitMath::compress(final_cov);
+
+    // Modulate AccP.
     if (acc_of_accP < 50) {
         spt_entry.measure_accP.increment();
     } else {
         spt_entry.measure_accP.decrement();
     }
 
-    bitset<LINES_PER_REGION> new_ac_64 = bmp_real_anchored & bmp_cov_decomp;
-    spt_entry.bmp_accP = BitMath::compress(new_ac_64);
+    // AccP is rebuilt from the current anchored program pattern and the final CovP.
+    bitset<LINES_PER_REGION> new_acc = bmp_real_anchored & final_cov;
+    spt_entry.bmp_accP = BitMath::compress(new_acc);
 }
 
 // prefetch time
 void DSPatchCore::generate_prefetches(uint64_t pc, uint64_t page_addr,
     uint32_t trigger_offset, std::vector<uint64_t> &prefetch_candidates) {
-    
+
     uint32_t spt_index = get_spt_index(pc);
     SPT_Entry &spt_entry = spt[spt_index];
 
@@ -122,7 +133,7 @@ void DSPatchCore::generate_prefetches(uint64_t pc, uint64_t page_addr,
     bitset<LINES_PER_REGION> bmp_decomp = BitMath::decompress(selected_bmp);
     bitset<LINES_PER_REGION> shifted_bmp = BitMath::circular_shift_left(bmp_decomp, trigger_offset);
 
-    // Generate prefetch candidates based on the selected pattern
+    // Generate prefetch candidates based on the selected pattern.
     for (uint32_t i = 0; i < LINES_PER_REGION; ++i) {
         if (shifted_bmp[i] && i != trigger_offset) {
             uint64_t prefetch_addr = (page_addr * REGION_SIZE_BYTES) + (i * CACHE_LINE_SIZE_BYTES);
@@ -155,16 +166,17 @@ uint32_t dspatch::prefetcher_cache_operate(champsim::address addr, champsim::add
 }
 
 void dspatch::prefetcher_cycle_operate(){
-    // For now, using L2 MSHR occupancyh as a proxy for bandwidth conditions. This can be replaced with a more direct measure if available.
+    // For now, using L2 MSHR occupancy as a proxy for bandwidth conditions.
+    // This can be replaced with a more direct measure if available.
     double utilization = intern_->get_mshr_occupancy_ratio();
 
-   uint8_t bw_bucket = 0;
+    uint8_t bw_bucket = 0;
     if (utilization > 0.75) {
-         bw_bucket = 3; // High bandwidth
+        bw_bucket = 3; // High bandwidth
     } else if (utilization > 0.5) {
-         bw_bucket = 2; // Moderate bandwidth
+        bw_bucket = 2; // Moderate bandwidth
     } else {
-         bw_bucket = 1; // Low bandwidth
+        bw_bucket = 1; // Low bandwidth
     }
 
     engine.update_bw(bw_bucket);
@@ -177,3 +189,4 @@ uint32_t dspatch::prefetcher_cache_fill(champsim::address addr, long set, long w
 void dspatch::prefetcher_final_stats() {
     // TODO
 }
+

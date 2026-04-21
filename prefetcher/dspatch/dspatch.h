@@ -197,3 +197,4 @@ struct dspatch : public champsim::modules::prefetcher {
 };
 
 #endif // DSPATCH_H
+
