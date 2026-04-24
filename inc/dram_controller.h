@@ -34,6 +34,8 @@
 #include "extent_set.h"
 #include "operable.h"
 
+extern uint8_t dram_bw_util_signal;
+
 struct DRAM_ADDRESS_MAPPING {
   constexpr static std::size_t SLICER_OFFSET_IDX = 0;
   constexpr static std::size_t SLICER_CHANNEL_IDX = 1;
@@ -174,6 +176,12 @@ struct DRAM_CHANNEL final : public champsim::operable {
   long populate_dbus();
   DRAM_CHANNEL::queue_type::iterator schedule_packet();
   long service_packet(DRAM_CHANNEL::queue_type::iterator pkt);
+  uint64_t cas_count = 0;
+  champsim::chrono::clock::duration cas_window_duration{};
+  champsim::chrono::clock::time_point cas_window_start{};
+  uint8_t bw_util_signal = 0;
+
+  uint64_t cas_peak_per_window = 0;
 
   void initialize() final;
   long operate() final;

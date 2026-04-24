@@ -5,6 +5,9 @@
 #include "cache.h"
 #include "dspatch.h"
 #include "cache.h"
+#include "dram_controller.h"
+
+extern uint8_t dram_bw_util_signal;
 
 using namespace std;
 
@@ -13,9 +16,7 @@ uint32_t DSPatchCore::get_spt_index(uint64_t trigger_pc) {
     return (trigger_pc ^ (trigger_pc >> 8) ^ (trigger_pc >> 16)) % SPT_SIZE;
 }
 
-void DSPatchCore::update_bw(uint8_t current_bw) {
-    bw_bucket = current_bw;
-}
+uint8_t bw_bucket_dsp = dram_bw_util_signal;
 
 /*
     Overall Flow:
@@ -31,7 +32,7 @@ void DSPatchCore::update_bw(uint8_t current_bw) {
 PerfCandidate DSPatchCore::dyn_selecttion(const SPT_Entry& spt_entry,
     std::bitset<LINES_PER_REGION/2> &selected_bmp) {
     // High bandwidth, prioritize accuracy.
-    if (bw_bucket == 3) {
+    if (bw_bucket_dsp == 3) {
         if (spt_entry.measure_accP.is_saturated()) {
             selected_bmp.reset();
             return PerfCandidate::NONE;
@@ -42,7 +43,7 @@ PerfCandidate DSPatchCore::dyn_selecttion(const SPT_Entry& spt_entry,
     }
 
     // Moderate bandwidth, prefer coverage unless CovP has proven bad.
-    if (bw_bucket == 2) {
+    if (bw_bucket_dsp == 2) {
         if (spt_entry.measure_covP.is_saturated()) {
             selected_bmp = spt_entry.bmp_accP;
             return PerfCandidate::ACCP;
@@ -170,16 +171,7 @@ void dspatch::prefetcher_cycle_operate(){
     // This can be replaced with a more direct measure if available.
     double utilization = intern_->get_mshr_occupancy_ratio();
 
-    uint8_t bw_bucket = 0;
-    if (utilization > 0.75) {
-        bw_bucket = 3; // High bandwidth
-    } else if (utilization > 0.5) {
-        bw_bucket = 2; // Moderate bandwidth
-    } else {
-        bw_bucket = 1; // Low bandwidth
-    }
-
-    engine.update_bw(bw_bucket);
+    //engine.update_bw(bw_bucket);
 }
 
 uint32_t dspatch::prefetcher_cache_fill(champsim::address addr, long set, long way, uint8_t prefetch, champsim::address evicted_addr, uint32_t metadata_in) {

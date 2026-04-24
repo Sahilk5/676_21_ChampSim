@@ -27,6 +27,8 @@
 #include "util/span.h"
 #include "util/units.h"
 
+uint8_t dram_bw_util_signal=0;
+
 MEMORY_CONTROLLER::MEMORY_CONTROLLER(champsim::chrono::picoseconds dbus_period, champsim::chrono::picoseconds mc_period, std::size_t t_rp, std::size_t t_rcd,
                                      std::size_t t_cas, std::size_t t_ras, champsim::chrono::microseconds refresh_period, std::vector<channel_type*>&& ul,
                                      std::size_t rq_size, std::size_t wq_size, std::size_t chans, champsim::data::bytes chan_width, std::size_t rows,
@@ -57,6 +59,11 @@ DRAM_CHANNEL::DRAM_CHANNEL(champsim::chrono::picoseconds dbus_period, champsim::
   request_array_type br(address_mapping.ranks() * address_mapping.banks() * address_mapping.bankgroups());
   bank_request = br;
   active_request = std::end(bank_request);
+  uint64_t tRC_cycles = t_rp + t_rcd + t_ras;
+  uint64_t window_size = 4*tRC_cycles;
+  cas_peak_per_window = window_size;
+  cas_window_duration = (4*tRC_cycles) * mc_period;
+  cas_window_start = champsim::chrono::clock::time_point{};
 }
 
 DRAM_ADDRESS_MAPPING::DRAM_ADDRESS_MAPPING(champsim::data::bytes channel_width_, std::size_t pref_size_, std::size_t channels_, std::size_t bankgroups_,
@@ -106,6 +113,15 @@ long MEMORY_CONTROLLER::operate()
 
 long DRAM_CHANNEL::operate()
 {
+  if((current_time - cas_window_start) >= cas_window_duration) {
+	  if (cas_count * 4 >= cas_peak_per_window*3) bw_util_signal=3;
+	  else if(cas_count*4 >= cas_peak_per_window*2) bw_util_signal=2;
+	  else if(cas_count*4 >= cas_peak_per_window*1) bw_util_signal=1;
+	  else bw_util_signal=0;
+	  cas_count/= 2;
+	  cas_window_start = current_time;
+	  dram_bw_util_signal = bw_util_signal;
+  }
   long progress{0};
 
   if (warmup) {
@@ -260,6 +276,7 @@ long DRAM_CHANNEL::populate_dbus()
       auto bankgroup_ready_time = bankgroup_readytime[op_bankgroup];
 
       active_request = iter_next_process;
+      cas_count++;
 
       // set return time. Incur penalty if bankgroup is on cooldown
       if (bankgroup_ready_time > current_time)
