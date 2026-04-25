@@ -112,6 +112,8 @@ struct spp_dspatch : public champsim::modules::prefetcher {
   constexpr static bool GHR_ON             = true;
   constexpr static bool SPP_SANITY_CHECK   = true;
   constexpr static bool SPP_DEBUG_PRINT    = false;
+  constexpr static bool DSPATCH_BW_DEBUG_PRINT = false;
+  constexpr static uint64_t DSPATCH_BW_PRINT_INTERVAL = 100000;
 
   // ── SPP Signature Table ────────────────────────────────────
   constexpr static std::size_t ST_SET      = 1;
@@ -144,6 +146,8 @@ struct spp_dspatch : public champsim::modules::prefetcher {
   constexpr static std::size_t MAX_GHR_ENTRY       = 8;
 
   using prefetcher::prefetcher;
+  uint8_t last_bw_bucket = UINT8_MAX;
+  uint64_t bw_sample_count = 0;
 
   // ChampSim interface
   void     prefetcher_initialize();

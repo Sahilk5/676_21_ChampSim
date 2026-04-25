@@ -16,6 +16,8 @@ struct spp_dev : public champsim::modules::prefetcher {
   constexpr static bool GHR_ON = true;
   constexpr static bool SPP_SANITY_CHECK = true;
   constexpr static bool SPP_DEBUG_PRINT = false;
+  constexpr static bool SPP_BW_DEBUG_PRINT = false;
+  constexpr static uint64_t SPP_BW_PRINT_INTERVAL = 100000;
 
   // Signature table parameters
   constexpr static std::size_t ST_SET = 1;
@@ -48,6 +50,8 @@ struct spp_dev : public champsim::modules::prefetcher {
   constexpr static std::size_t MAX_GHR_ENTRY = 8;
 
   using prefetcher::prefetcher;
+  uint8_t last_bw_bucket = UINT8_MAX;
+  uint64_t bw_sample_count = 0;
   uint32_t prefetcher_cache_operate(champsim::address addr, champsim::address ip, uint8_t cache_hit, bool useful_prefetch, access_type type,
                                     uint32_t metadata_in);
   uint32_t prefetcher_cache_fill(champsim::address addr, long set, long way, uint8_t prefetch, champsim::address evicted_addr, uint32_t metadata_in);
@@ -177,3 +181,4 @@ struct spp_dev : public champsim::modules::prefetcher {
 };
 
 #endif
+

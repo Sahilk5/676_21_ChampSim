@@ -11,12 +11,27 @@ extern uint8_t dram_bw_util_signal;
 
 using namespace std;
 
+namespace {
+
+const char* perf_candidate_name(PerfCandidate candidate) {
+    switch (candidate) {
+        case PerfCandidate::NONE:
+            return "NONE";
+        case PerfCandidate::COVP:
+            return "COVP";
+        case PerfCandidate::ACCP:
+            return "ACCP";
+    }
+
+    return "UNKNOWN";
+}
+
+}  // namespace
+
 
 uint32_t DSPatchCore::get_spt_index(uint64_t trigger_pc) {
     return (trigger_pc ^ (trigger_pc >> 8) ^ (trigger_pc >> 16)) % SPT_SIZE;
 }
-
-uint8_t bw_bucket_dsp = dram_bw_util_signal;
 
 /*
     Overall Flow:
@@ -32,7 +47,7 @@ uint8_t bw_bucket_dsp = dram_bw_util_signal;
 PerfCandidate DSPatchCore::dyn_selecttion(const SPT_Entry& spt_entry,
     std::bitset<LINES_PER_REGION/2> &selected_bmp) {
     // High bandwidth, prioritize accuracy.
-    if (bw_bucket_dsp == 3) {
+    if (bw_bucket == 3) {
         if (spt_entry.measure_accP.is_saturated()) {
             selected_bmp.reset();
             return PerfCandidate::NONE;
@@ -43,7 +58,7 @@ PerfCandidate DSPatchCore::dyn_selecttion(const SPT_Entry& spt_entry,
     }
 
     // Moderate bandwidth, prefer coverage unless CovP has proven bad.
-    if (bw_bucket_dsp == 2) {
+    if (bw_bucket == 2) {
         if (spt_entry.measure_covP.is_saturated()) {
             selected_bmp = spt_entry.bmp_accP;
             return PerfCandidate::ACCP;
@@ -129,6 +144,14 @@ void DSPatchCore::generate_prefetches(uint64_t pc, uint64_t page_addr,
     bitset<LINES_PER_REGION/2> selected_bmp;
     PerfCandidate selected_pattern = dyn_selecttion(spt_entry, selected_bmp);
 
+    if constexpr (dspatch::DSPATCH_BW_DEBUG_PRINT) {
+        std::cout << "[DSPatch][select] bw=" << unsigned(bw_bucket)
+                  << " pc=0x" << std::hex << pc << std::dec
+                  << " trigger_offset=" << trigger_offset
+                  << " pattern=" << perf_candidate_name(selected_pattern)
+                  << '\n';
+    }
+
     if (selected_pattern == PerfCandidate::NONE) return;
 
     bitset<LINES_PER_REGION> bmp_decomp = BitMath::decompress(selected_bmp);
@@ -143,12 +166,39 @@ void DSPatchCore::generate_prefetches(uint64_t pc, uint64_t page_addr,
     }
 }
 
+void DSPatchCore::update_bw(uint8_t current_bw) {
+    bw_bucket = current_bw;
+}
+
 
 void dspatch::prefetcher_initialize() {
+    engine.update_bw(dram_bw_util_signal);
     std::cout<< "Initialized DSPatch Prefetcher" << std::endl;
+
+    if constexpr (DSPATCH_BW_DEBUG_PRINT) {
+        last_bw_bucket = dram_bw_util_signal;
+        std::cout << "[DSPatch][bw][init] bucket=" << unsigned(last_bw_bucket) << '\n';
+    }
 }
 
 uint32_t dspatch::prefetcher_cache_operate(champsim::address addr, champsim::address ip, bool cache_hit, bool useful_prefetch, access_type type, uint32_t metadata_in) {
+    engine.update_bw(dram_bw_util_signal);
+
+    if constexpr (DSPATCH_BW_DEBUG_PRINT) {
+        ++bw_sample_count;
+        uint8_t current_bw = dram_bw_util_signal;
+
+        if (current_bw != last_bw_bucket) {
+            std::cout << "[DSPatch][bw][change] sample=" << bw_sample_count
+                      << " bucket=" << unsigned(last_bw_bucket)
+                      << "->" << unsigned(current_bw)
+                      << " ip=0x" << std::hex << ip.to<uint64_t>()
+                      << " addr=0x" << addr.to<uint64_t>() << std::dec
+                      << '\n';
+            last_bw_bucket = current_bw;
+        }
+    }
+
     if (type != access_type::LOAD && type != access_type::RFO) {
         return metadata_in; // Only consider demand accesses for prefetching
     }
@@ -167,11 +217,15 @@ uint32_t dspatch::prefetcher_cache_operate(champsim::address addr, champsim::add
 }
 
 void dspatch::prefetcher_cycle_operate(){
-    // For now, using L2 MSHR occupancy as a proxy for bandwidth conditions.
-    // This can be replaced with a more direct measure if available.
-    double utilization = intern_->get_mshr_occupancy_ratio();
+    engine.update_bw(dram_bw_util_signal);
 
-    //engine.update_bw(bw_bucket);
+    if constexpr (DSPATCH_BW_DEBUG_PRINT) {
+        ++bw_sample_count;
+        if ((bw_sample_count % DSPATCH_BW_PRINT_INTERVAL) == 0) {
+            std::cout << "[DSPatch][bw][periodic] sample=" << bw_sample_count
+                      << " bucket=" << unsigned(dram_bw_util_signal) << '\n';
+        }
+    }
 }
 
 uint32_t dspatch::prefetcher_cache_fill(champsim::address addr, long set, long way, uint8_t prefetch, champsim::address evicted_addr, uint32_t metadata_in) {

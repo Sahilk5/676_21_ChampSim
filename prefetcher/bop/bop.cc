@@ -1,8 +1,12 @@
 #include "bop.h"
 
 #include <cstdio>
+#include <iostream>
 
 #include "cache.h"
+#include "dram_controller.h"
+
+extern uint8_t dram_bw_util_signal;
 
 bool bop::rrt_hit(champsim::block_number addr) const
 {
@@ -25,10 +29,47 @@ void bop::reset_learning()
   current_idx = 0;
 }
 
+void bop::prefetcher_initialize()
+{
+  if constexpr (BOP_BW_DEBUG_PRINT) {
+    last_bw_bucket = dram_bw_util_signal;
+    std::cout << "[BOP][bw][init] bucket=" << unsigned(last_bw_bucket) << '\n';
+  }
+}
+
+void bop::prefetcher_cycle_operate()
+{
+  if constexpr (BOP_BW_DEBUG_PRINT) {
+    ++bw_sample_count;
+    if ((bw_sample_count % BOP_BW_PRINT_INTERVAL) == 0) {
+      std::cout << "[BOP][bw][periodic] sample=" << bw_sample_count
+                << " bucket=" << unsigned(dram_bw_util_signal)
+                << " best_offset=" << best_offset
+                << '\n';
+    }
+  }
+}
+
 uint32_t bop::prefetcher_cache_operate(champsim::address addr, champsim::address ip,
                                        uint8_t cache_hit, bool useful_prefetch,
                                        access_type type, uint32_t metadata_in)
 {
+  if constexpr (BOP_BW_DEBUG_PRINT) {
+    ++bw_sample_count;
+    uint8_t current_bw = dram_bw_util_signal;
+
+    if (current_bw != last_bw_bucket) {
+      std::cout << "[BOP][bw][change] sample=" << bw_sample_count
+                << " bucket=" << unsigned(last_bw_bucket)
+                << "->" << unsigned(current_bw)
+                << " ip=0x" << std::hex << ip.to<uint64_t>()
+                << " addr=0x" << addr.to<uint64_t>() << std::dec
+                << " best_offset=" << best_offset
+                << '\n';
+      last_bw_bucket = current_bw;
+    }
+  }
+
   champsim::block_number bl{addr};
 
   // Score the current candidate offset: was (bl - offset) accessed recently?
@@ -107,3 +148,4 @@ void bop::prefetcher_final_stats()
   printf("  Final best offset  : %d cache lines\n", best_offset);
   printf("============================\n\n");
 }
+

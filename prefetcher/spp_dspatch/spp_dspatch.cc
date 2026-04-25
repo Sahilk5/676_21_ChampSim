@@ -7,7 +7,22 @@
 
 extern uint8_t dram_bw_util_signal;
 
-uint8_t bw_bucket = dram_bw_util_signal; 
+namespace {
+
+const char* dspatch_pattern_name(DSPatchPatternSelection pattern) {
+  switch (pattern) {
+    case DSPatchPatternSelection::NONE:
+      return "NONE";
+    case DSPatchPatternSelection::COVP:
+      return "COVP";
+    case DSPatchPatternSelection::ACCP:
+      return "ACCP";
+  }
+
+  return "UNKNOWN";
+}
+
+}  // namespace
 
 // ============================================================
 // DSPatch Core Implementation
@@ -50,22 +65,32 @@ void DSPatchPrefetchEngine::train_spatial_pattern_table(const DSPatchPageBufferE
   uint32_t acc_of_covP = pop_cov  ? (match_cov * 100 / pop_cov)  : 0;
   uint32_t acc_of_accP = pop_acc  ? (match_acc * 100 / pop_acc)  : 0;
 
-  // Update CovP
-  if ((bmp_anchored & ~bmp_cov_dec).any()) e.or_count.increment();
-  if (acc_of_covP < 50 || cov_of_covP < 50) {
+  if (acc_of_covP < 50 || cov_of_covP < 50)
     e.measure_covP.increment();
-    if (e.measure_covP.is_saturated()) {
-      e.bmp_covP = DSPatchBitmapOps::compress(bmp_anchored);
-      e.measure_covP.reset(); e.or_count.reset();
-    } else {
-      e.bmp_covP = DSPatchBitmapOps::compress(bmp_cov_dec | bmp_anchored);
-    }
+
+  bool relearn_covP =
+    e.measure_covP.is_saturated() &&
+    ((bandwidth_bucket == 3) || (cov_of_covP < 50));
+
+  bool adds_new_bits = (bmp_anchored & ~bmp_cov_dec).any();
+  std::bitset<LINES_PER_REGION> final_cov = bmp_cov_dec;
+
+  if (relearn_covP) {
+    final_cov = bmp_anchored;
+    e.measure_covP.reset();
+    e.or_count.reset();
+  } else if (adds_new_bits && !e.or_count.is_saturated()) {
+    final_cov = bmp_cov_dec | bmp_anchored;
+    e.or_count.increment();
   }
+
+  e.bmp_covP = DSPatchBitmapOps::compress(final_cov);
 
   // Update AccP
   if (acc_of_accP < 50) e.measure_accP.increment();
-  else                   e.measure_accP.decrement();
-  e.bmp_accP = DSPatchBitmapOps::compress(bmp_anchored & bmp_cov_dec);
+  else                  e.measure_accP.decrement();
+
+  e.bmp_accP = DSPatchBitmapOps::compress(bmp_anchored & final_cov);
 }
 
 void DSPatchPrefetchEngine::generate_spatial_prefetches(uint64_t pc, uint64_t page_addr,
@@ -76,6 +101,15 @@ void DSPatchPrefetchEngine::generate_spatial_prefetches(uint64_t pc, uint64_t pa
 
   std::bitset<LINES_PER_REGION/2> selected_bmp;
   DSPatchPatternSelection pattern = select_pattern_bitmap(e, selected_bmp);
+
+  if constexpr (spp_dspatch::DSPATCH_BW_DEBUG_PRINT) {
+    std::cout << "[SPP+DSPatch][select] bw=" << unsigned(bandwidth_bucket)
+              << " pc=0x" << std::hex << pc << std::dec
+              << " trigger_offset=" << trigger_offset
+              << " pattern=" << dspatch_pattern_name(pattern)
+              << '\n';
+  }
+
   if (pattern == DSPatchPatternSelection::NONE) return;
 
   auto bmp_full    = DSPatchBitmapOps::decompress(selected_bmp);
@@ -128,11 +162,28 @@ void spp_dspatch::prefetcher_initialize() {
   std::cout << "  DSPatch PB_SIZE=" << PB_SIZE << " SPT_SIZE=" << SPT_SIZE << "\n";
   ST._parent = this; PT._parent = this;
   FILTER._parent = this; GHR._parent = this;
+  dspatch_engine.update_bw(dram_bw_util_signal);
+
+  if constexpr (DSPATCH_BW_DEBUG_PRINT) {
+    last_bw_bucket = dram_bw_util_signal;
+    std::cout << "[SPP+DSPatch][bw][init] bucket=" << unsigned(last_bw_bucket) << '\n';
+  }
 }
 
 // ── cycle_operate: update bandwidth bucket (shared by both engines) ─────────
 void spp_dspatch::prefetcher_cycle_operate() {
-  dspatch_engine.update_bw(bw_bucket);
+  dspatch_engine.update_bw(dram_bw_util_signal);
+
+  if constexpr (DSPATCH_BW_DEBUG_PRINT) {
+    ++bw_sample_count;
+    if ((bw_sample_count % DSPATCH_BW_PRINT_INTERVAL) == 0) {
+      std::cout << "[SPP+DSPatch][bw][periodic] sample=" << bw_sample_count
+                << " bucket=" << unsigned(dram_bw_util_signal)
+                << " effective_pf_thresh="
+                << ((dspatch_engine.get_bandwidth_bucket() >= 3) ? FILL_THRESHOLD : PF_THRESHOLD)
+                << '\n';
+    }
+  }
 }
 
 // ── Combined cache_operate ───────────────────────────────────────────────────
@@ -142,6 +193,25 @@ uint32_t spp_dspatch::prefetcher_cache_operate(champsim::address addr,
                                                bool useful_prefetch,
                                                access_type type,
                                                uint32_t metadata_in) {
+  dspatch_engine.update_bw(dram_bw_util_signal);
+
+  if constexpr (DSPATCH_BW_DEBUG_PRINT) {
+    ++bw_sample_count;
+    uint8_t current_bw = dram_bw_util_signal;
+
+    if (current_bw != last_bw_bucket) {
+      std::cout << "[SPP+DSPatch][bw][change] sample=" << bw_sample_count
+                << " bucket=" << unsigned(last_bw_bucket)
+                << "->" << unsigned(current_bw)
+                << " ip=0x" << std::hex << ip.to<uint64_t>()
+                << " addr=0x" << addr.to<uint64_t>() << std::dec
+                << " effective_pf_thresh="
+                << ((dspatch_engine.get_bandwidth_bucket() >= 3) ? FILL_THRESHOLD : PF_THRESHOLD)
+                << '\n';
+      last_bw_bucket = current_bw;
+    }
+  }
+
   if (type != access_type::LOAD && type != access_type::RFO)
     return metadata_in;
 

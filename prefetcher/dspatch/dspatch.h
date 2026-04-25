@@ -187,7 +187,12 @@ public:
 struct dspatch : public champsim::modules::prefetcher {
     using prefetcher::prefetcher;
 
+    constexpr static bool DSPATCH_BW_DEBUG_PRINT = false;
+    constexpr static uint64_t DSPATCH_BW_PRINT_INTERVAL = 100000;
+
     DSPatchCore engine;
+    uint8_t last_bw_bucket = UINT8_MAX;
+    uint64_t bw_sample_count = 0;
 
     void prefetcher_initialize();
     uint32_t prefetcher_cache_operate(champsim::address addr, champsim::address ip, bool cache_hit, bool useful_prefetch, access_type type, uint32_t metadata_in);

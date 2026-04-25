@@ -67,7 +67,7 @@
         "prefetch_as_load": false,
         "virtual_prefetch": false,
         "prefetch_activate": "LOAD,WRITE,RFO,TRANSLATION,PREFETCH",
-        "prefetcher": "no"
+        "prefetcher": "ip_stride"
     },
 
     "L2C": {
@@ -83,7 +83,7 @@
         "prefetch_as_load": false,
         "virtual_prefetch": false,
         "prefetch_activate": "LOAD,WRITE,RFO,TRANSLATION,PREFETCH",
-        "prefetcher": "dspatch"
+        "prefetcher": "spp_dspatch"
     },
 
     "ITLB": {
@@ -167,7 +167,7 @@
     },
 
     "physical_memory": {
-        "frequency": 3200,
+        "frequency": 1600,
         "channels": 1,
         "ranks": 1,
         "banks": 8,

@@ -29,6 +29,14 @@
 
 uint8_t dram_bw_util_signal=0;
 
+namespace {
+
+constexpr bool DRAM_BW_DEBUG_PRINT = true;
+uint8_t last_reported_bw_bucket = std::numeric_limits<uint8_t>::max();
+uint64_t bw_window_count = 0;
+
+} // namespace
+
 MEMORY_CONTROLLER::MEMORY_CONTROLLER(champsim::chrono::picoseconds dbus_period, champsim::chrono::picoseconds mc_period, std::size_t t_rp, std::size_t t_rcd,
                                      std::size_t t_cas, std::size_t t_ras, champsim::chrono::microseconds refresh_period, std::vector<channel_type*>&& ul,
                                      std::size_t rq_size, std::size_t wq_size, std::size_t chans, champsim::data::bytes chan_width, std::size_t rows,
@@ -114,13 +122,27 @@ long MEMORY_CONTROLLER::operate()
 long DRAM_CHANNEL::operate()
 {
   if((current_time - cas_window_start) >= cas_window_duration) {
+      const auto window_cas_count = cas_count;
+      const double bw_util_pct =
+          (cas_peak_per_window == 0) ? 0.0
+                                     : (100.0 * static_cast<double>(window_cas_count) / static_cast<double>(cas_peak_per_window));
 	  if (cas_count * 4 >= cas_peak_per_window*3) bw_util_signal=3;
 	  else if(cas_count*4 >= cas_peak_per_window*2) bw_util_signal=2;
 	  else if(cas_count*4 >= cas_peak_per_window*1) bw_util_signal=1;
 	  else bw_util_signal=0;
+	  dram_bw_util_signal = bw_util_signal;
+
+      if constexpr (DRAM_BW_DEBUG_PRINT) {
+        ++bw_window_count;
+        if (bw_util_signal != last_reported_bw_bucket) {
+          fmt::print("[DRAM][bw] window={} util={:.2f}% cas_count={} cas_peak={} bucket={}\n",
+                     bw_window_count, bw_util_pct, window_cas_count, cas_peak_per_window, bw_util_signal);
+          last_reported_bw_bucket = bw_util_signal;
+        }
+      }
+
 	  cas_count/= 2;
 	  cas_window_start = current_time;
-	  dram_bw_util_signal = bw_util_signal;
   }
   long progress{0};
 
@@ -650,3 +672,4 @@ void DRAM_CHANNEL::print_deadlock()
   champsim::range_print_deadlock(WQ, "WQ", q_writer, q_entry_pack);
 }
 // LCOV_EXCL_STOP
+

@@ -3,6 +3,10 @@
 #include <cassert>
 #include <iostream>
 
+#include "dram_controller.h"
+
+extern uint8_t dram_bw_util_signal;
+
 void spp_dev::prefetcher_initialize()
 {
   std::cout << "Initialize SIGNATURE TABLE" << std::endl;
@@ -25,13 +29,42 @@ void spp_dev::prefetcher_initialize()
   PT._parent = this;
   FILTER._parent = this;
   GHR._parent = this;
+
+  if constexpr (SPP_BW_DEBUG_PRINT) {
+    last_bw_bucket = dram_bw_util_signal;
+    std::cout << "[SPP][bw][init] bucket=" << unsigned(last_bw_bucket) << '\n';
+  }
 }
 
-void spp_dev::prefetcher_cycle_operate() {}
+void spp_dev::prefetcher_cycle_operate()
+{
+  if constexpr (SPP_BW_DEBUG_PRINT) {
+    ++bw_sample_count;
+    if ((bw_sample_count % SPP_BW_PRINT_INTERVAL) == 0) {
+      std::cout << "[SPP][bw][periodic] sample=" << bw_sample_count
+                << " bucket=" << unsigned(dram_bw_util_signal) << '\n';
+    }
+  }
+}
 
 uint32_t spp_dev::prefetcher_cache_operate(champsim::address addr, champsim::address ip, uint8_t cache_hit, bool useful_prefetch, access_type type,
                                            uint32_t metadata_in)
 {
+  if constexpr (SPP_BW_DEBUG_PRINT) {
+    ++bw_sample_count;
+    uint8_t current_bw = dram_bw_util_signal;
+
+    if (current_bw != last_bw_bucket) {
+      std::cout << "[SPP][bw][change] sample=" << bw_sample_count
+                << " bucket=" << unsigned(last_bw_bucket)
+                << "->" << unsigned(current_bw)
+                << " ip=0x" << std::hex << ip.to<uint64_t>()
+                << " addr=0x" << addr.to<uint64_t>() << std::dec
+                << '\n';
+      last_bw_bucket = current_bw;
+    }
+  }
+
   champsim::page_number page{addr};
   uint32_t last_sig = 0, curr_sig = 0, depth = 0;
   std::vector<uint32_t> confidence_q(intern_->MSHR_SIZE);
@@ -556,3 +589,4 @@ uint32_t spp_dev::GLOBAL_REGISTER::check_entry(offset_type page_offset)
 
   return max_conf_way;
 }
+
